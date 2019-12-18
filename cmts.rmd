@@ -1,0 +1,213 @@
+---
+title: "_**SNR Prediction on the CMTS Data**_"
+author: "_By Cypriyan_"
+date: "December 13, 2019"
+output: html_document
+---
+\
+\
+\
+_**Linear Modelling Algorithm Step by Step**_  
+\
+\
+__Import The Raw Input Data into the Environment__
+```{r}
+cmts <- read.csv("C:/Users/HOME/Downloads/boo.csv", stringsAsFactors=TRUE)
+```
+\
+__Structure of the Input Data__
+```{r}
+str(cmts)
+
+```
+\
+__Checking Correlation on Categorical Variables__
+```{r, warning= FALSE}
+library(GoodmanKruskal)
+cmts1 <- subset(cmts, select = c(hub, cmts_name))
+gk_matrix <- GKtauDataframe(cmts1)
+plot(gk_matrix, corrColors = "blue")
+
+```
+\
+\
+\
+__Deleting Uni_Dimensional, Multi-Dimensional & Correlated Categorical variables__
+```{r}
+cmts$as_of_dt <- NULL
+cmts$hr <- NULL
+cmts$Market <- NULL
+cmts$hub <- NULL
+cmts$mac_addr <- NULL
+cmts$crte_dtm <- NULL
+cmts$data_acq_id <- NULL
+cmts$dt <- NULL
+cmts$hour <- NULL
+
+```
+
+```{r,echo=FALSE}
+cmts <- read.csv("C:/Users/HOME/Downloads/boo.csv", stringsAsFactors=FALSE)
+cmts$as_of_dt <- NULL
+cmts$hr <- NULL
+cmts$Market <- NULL
+cmts$hub <- NULL
+cmts$mac_addr <- NULL
+cmts$crte_dtm <- NULL
+cmts$data_acq_id <- NULL
+cmts$dt <- NULL
+cmts$hour <- NULL
+```
+\
+__Scatter Plot of Independents with the Dependent Varaiable (Signal with all the Independents)__         
+__Linear line can be either Upward or Downward__
+```{r}
+plot(cmts$cer_up, cmts$snr_up, main = "Scatter Plot of Cer_up & SNR", xlab = "CER_UP", ylab = "SNR") # Negative
+abline(lm(snr_up ~ cer_up, data = cmts), col = "red")
+plot(cmts$ccer_up, cmts$snr_up, main = "Scatter Plot of CCer_up & SNR", xlab = "CCER_UP", ylab = "SNR")# Negative
+abline(lm(snr_up ~ ccer_up, data = cmts), col = "red")
+
+```
+
+```{r}
+plot(cmts$rxpower_up, cmts$snr_up,  main = "Scatter Plot of Receiver Power & SNR", xlab = "RxPwr", ylab ="SNR")# Positive
+abline(lm(snr_up ~ rxpower_up, data = cmts), col = "red")
+plot(cmts$tspower_up, cmts$snr_up, main = "Scatter Plot of Tranmission Power & SNR",xlab = "TxPwr", ylab ="SNR")# Positive
+abline(lm(snr_up ~ tspower_up, data = cmts), col = "red")
+```
+\
+__Outlier Treatment - Capping it to (Mean + 3*Std Deviation as Maximum) & (Mean - 3*Std Deviation as Minimun)__      
+__For Variables such as Cer_up, Ccer_up, TsPower_up, RxPower_up & Path_loss_up__
+```{r, warning=FALSE, results= "hide"}
+library(psych)
+
+describeBy(cmts$cer_up)
+0.09 + 3*1.58 # 4.83
+0.09 - 3*1.58 # -4.65
+cmts$new_cer <- ifelse(cmts$cer_up >= 5, 5, cmts$cer_up)
+
+
+
+describeBy(cmts$ccer_up)
+1.21 + 3* 5.96 # 19.09
+1.21 - 3* 5.96 # -16.67
+cmts$new_ccer <- ifelse(cmts$ccer_up >= 20, 20, cmts$ccer_up)
+
+
+
+describeBy(cmts$tspower_up)
+45.83 + 3 * 8.58 # 71.57
+45.83 - 3 * 8.58 # 20.09
+cmts$new_tspower <- ifelse(cmts$tspower_up <= 20, 20, cmts$tspower_up)
+
+
+
+
+describeBy(cmts$rxpower_up)
+-0.1 + 3 * 1.03 # 2.99
+-0.1 - 3 * 1.03 # -3.19
+cmts$new_rxpower <- ifelse(cmts$rxpower_up >= 3.5, 3.5,
+                    ifelse(cmts$rxpower_up < -3.75, -3.75, cmts$rxpower_up))
+
+
+
+
+describeBy(cmts$path_loss_up)
+45.92 + 3 * 8.8 # 72.32
+45.92 - 3 * 8.8 # 19.52
+cmts$new_pathlossup <- ifelse(cmts$path_loss_up <= 19, 19, cmts$path_loss_up)
+
+
+
+
+cmts$cer_up <- NULL
+cmts$ccer_up <- NULL
+cmts$tspower_up <- NULL
+cmts$rxpower_up <- NULL
+cmts$path_loss_up <- NULL
+
+```
+\
+__Subset the dataset into only Numericals to check the Correlation aspect between them__
+```{r, warning= FALSE, }
+cmts_cor <- subset(cmts, select = c(new_cer, new_ccer, new_rxpower, new_tspower, 
+                                    new_pathlossup))
+library(sp)
+library(raster)
+library(usdm)
+
+
+vif_cmts <- vifstep(cmts_cor, th = 10)
+vif_cmts
+
+vif(cmts_cor)
+
+cmts$new_pathlossup <- NULL
+
+```
+\
+__SubString the Variable Upstream_Name & Deleting the rows which are having 0 as Signal values from the SNR__
+```{r}
+cmts$cableID <- substr(cmts$upstream_name, 33, 52)
+cmts$cmts_port <- substr(cmts$upstream_name, 20, 31)
+
+cmts$cableID1 <- as.factor(cmts$cableID)
+cmts$cmts_port1 <- as.factor(cmts$cmts_port)
+
+cmts$cmts_port <- NULL
+#cmts$cmts_port1 <- NULL
+cmts$cableID <- NULL
+cmts$upstream_name <- NULL
+
+cmts <- cmts[!cmts$snr_up == 0 , ]
+
+```
+\
+__Dividing the CMTS dataset into Train & Test datasets at 70 & 30 percent respectively__
+```{r,warning= FALSE}
+library(caTools)
+
+samp_size <- floor(0.7 * nrow(cmts))
+set.seed(123)
+
+train_cmts <- sample(seq_len(nrow(cmts)), size = samp_size)
+train_cmts1 <- cmts[train_cmts,]
+test_cmts <- cmts[-train_cmts,]
+
+
+```
+\
+__Running the Linear Model Algorithm on the Train dataset__
+```{r, echo = FALSE}
+mod <- lm(snr_up ~ . , data = train_cmts1)
+summary(mod)
+
+```
+\
+__Model Validation on the Test Dataset showing the Predicted Signal Values from the model as against its Actual Values__
+```{r, warning= FALSE}
+library(lattice)
+library(grid)
+library(DMwR)
+
+distpre <- as.data.frame(predict(mod, test_cmts))
+head(distpre)
+
+actuals_preds <- data.frame(cbind(Snr_up_actuals = test_cmts$snr_up, 
+                            Snr_up_predicteds = distpre$`predict(mod, test_cmts)`))
+head(actuals_preds)
+correlationaccuracy <- cor(actuals_preds)
+correlationaccuracy 
+
+```
+
+__Model Validation with scores such as MAPE & RMSE (MAPE - Mean Absolute Percentage Error) & (RMSE -Root Mean square error)__
+
+```{r}
+DMwR::regr.eval(actuals_preds$Snr_up_actuals, actuals_preds$Snr_up_predicteds)
+
+
+```
+
+
+# The End. 
